@@ -1,6 +1,6 @@
 {
     "name": "pi-count-tokens",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "description": "Pi command that counts tokens in a folder, with collapsible counted/skipped lists",
     "keywords": [
         "pi-package"
