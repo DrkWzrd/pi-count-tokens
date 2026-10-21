@@ -1,28 +1,30 @@
 # Publishes the package to npm when a GitHub release is published.
 # Save as .github/workflows/publish.yml
-# Requires an npm access token stored as the repository secret NPM_TOKEN.
-
+# Uses npm "trusted publishing" (OIDC): no npm token or secret is needed.
+# One-time setup: add this repo + workflow file as a Trusted Publisher on npmjs.com.
+ 
 name: Publish to npm
-
+ 
 on:
   release:
     types: [published]
-
+ 
 permissions:
   contents: read
-  id-token: write # needed for npm provenance
-
+  id-token: write # lets GitHub prove to npm who is publishing
+ 
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+ 
+      # Node 24 ships an npm new enough for trusted publishing (needs npm >= 11.5.1).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org/
-
+ 
       # Fails early if the release tag (e.g. v1.0.1) doesn't match package.json's version.
       - name: Check tag matches package version
         run: |
@@ -31,7 +33,6 @@ jobs:
             echo "Release tag ${{ github.event.release.tag_name }} does not match package.json version $VERSION"
             exit 1
           fi
-
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+ 
+      - run: npm publish --access public
+ 
