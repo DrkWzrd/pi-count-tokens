@@ -1,0 +1,28 @@
+{
+    "name": "pi-count-tokens",
+    "version": "1.0.0",
+    "description": "Pi command that counts tokens in a folder, with collapsible counted/skipped lists",
+    "keywords": [
+        "pi-package"
+    ],
+    "license": "MIT",
+    "author": "DrkWzrd",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/DrkWzrd/pi-count-tokens.git"
+    },
+    "files": [
+        "extensions",
+        "README.md",
+        "LICENSE"
+    ],
+    "pi": {
+        "extensions": [
+            "./extensions/count-tokens.ts"
+        ]
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*"
+    }
+}
