@@ -1,5 +1,10 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  readStoredCredential,
+  type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import * as piTui from "@earendil-works/pi-tui";
+import { execSync } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -8,6 +13,94 @@ const { Box, Text } = piTui;
 const MouseRegion = (piTui as any).MouseRegion;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+// Minimal view of the selected model; only the fields we need for auth.
+type ModelLike = {
+  provider: string;
+  id: string;
+  headers?: Record<string, string>;
+};
+
+// Resolves a key/header spec the same way pi does: literal value, "$NAME" or
+// "${NAME}" environment interpolation, "!command" output, with "$$" and "$!"
+// escapes. Returns undefined when nothing usable comes out.
+function resolveKeySpec(spec: string): string | undefined {
+  if (spec.startsWith("!")) {
+    try {
+      const output = execSync(spec.slice(1), {
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      })
+        .toString()
+        .trim();
+      return output || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  const resolved = spec.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|\$\$|\$!/g,
+    (match, braced?: string, bare?: string) => {
+      if (braced) return process.env[braced] ?? "";
+      if (bare) return process.env[bare] ?? "";
+      if (match === "$$") return "$";
+      return "!"; // $!
+    },
+  );
+
+  return resolved || undefined;
+}
+
+// Builds the auth headers for requests to the model server, mirroring pi's
+// resolution order: a stored credential (auth.json) wins, then the provider's
+// apiKey from models.json. Custom provider/model headers are resolved too and
+// take precedence over the Authorization header.
+async function resolveModelAuth(model: ModelLike): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(model.headers ?? {})) {
+    const resolved = resolveKeySpec(value);
+    if (resolved) headers[name] = resolved;
+  }
+
+  const credential = readStoredCredential(model.provider);
+
+  if (credential?.type === "oauth" && credential.expires < Date.now()) {
+    throw new Error(
+      "The OAuth token for " +
+        model.provider +
+        " is expired and this extension cannot refresh it. Send a message to the model first (pi refreshes the token on request) or run /login again.",
+    );
+  }
+
+  const keySpec =
+    credential?.type === "api_key"
+      ? credential.key
+      : credential?.type === "oauth"
+        ? credential.access
+        : undefined;
+
+  let apiKey = keySpec ? resolveKeySpec(keySpec) : undefined;
+
+  if (!apiKey) {
+    try {
+      const modelsJson = JSON.parse(
+        await readFile(path.join(getAgentDir(), "models.json"), "utf8"),
+      );
+      const spec = modelsJson?.providers?.[model.provider]?.apiKey;
+      if (typeof spec === "string") apiKey = resolveKeySpec(spec);
+    } catch {
+      // No models.json (or unreadable): proceed without a key.
+    }
+  }
+
+  if (apiKey && !headers.Authorization) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
+}
 
 const IGNORED_DIRS = new Set([
   ".git",
@@ -54,7 +147,7 @@ class ToggleBlock {
     else clickToggled.add(this.key);
   }
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     const expanded = this.piExpanded !== clickToggled.has(this.key);
     const header = this.theme.fg(this.headerColor, this.headerText);
 
@@ -156,7 +249,11 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      // Narrowed copy so closures (defined after the guard) keep the non-undefined type.
+      const selectedModel = model;
+
       const tokenizeUrl = new URL("/tokenize", model.baseUrl).toString();
+      const authHeaders = await resolveModelAuth(model);
 
       let totalTokens = 0;
       let filesCounted = 0;
@@ -197,10 +294,10 @@ export default function (pi: ExtensionAPI) {
 
         const response = await fetch(tokenizeUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({
             content,
-            model: model.id,
+            model: selectedModel.id,
           }),
           signal: AbortSignal.timeout(15000),
         });

@@ -47,6 +47,17 @@ Token counts come from the model server itself, so the selected model's server m
 
 and expects a response containing a `tokens` array. Its length is the token count. If the endpoint is missing or returns something else, the command stops and shows the error. Each request has a 15 second timeout.
 
+### Authentication
+
+If the selected model's server requires an API key, the extension sends it as `Authorization: Bearer <key>`, resolving the key the same way pi does:
+
+1. A stored credential for the model's provider (`~/.pi/agent/auth.json`, e.g. from `/login`), or
+2. The provider's `apiKey` in `~/.pi/agent/models.json` — literal value, `"$ENV_VAR"` / `"${ENV_VAR}"` interpolation, or `"!command"` output.
+
+Custom `headers` configured for the provider or model are resolved the same way and sent along, and take precedence over the `Authorization` header. Servers without a key are called as before, with no auth header.
+
+**OAuth / account logins** (Claude Pro/Max, GitHub Copilot, etc.) work too: the stored access token is sent as `Bearer`. One limitation — this extension cannot refresh an expired token (token refresh is pi-internal, not exposed to extensions). If the stored token is expired, the command tells you to send a message first (which makes pi refresh and persist a fresh token) or run `/login` again. Providers with non-header auth (AWS SigV4, Google Vertex ADC) are not supported — they don't expose `/tokenize` endpoints anyway.
+
 ## What gets skipped
 
 These are never counted:
